@@ -1,0 +1,24 @@
+# Laid by Claude Code each time it loads the mod (API and tool typings): machine-generated
+.claude-plugin/types/
+
+# Local secrets and environment, never committed
+.env
+.env.*
+*.pem
+*.key
+*.p8
+*.jks
+
+# Dependencies, builds, logs
+node_modules/
+dist/
+build/
+coverage/
+*.log
+*.tsbuildinfo
+
+# Editors and OS
+.DS_Store
+.idea/
+.vscode/
+*.swp

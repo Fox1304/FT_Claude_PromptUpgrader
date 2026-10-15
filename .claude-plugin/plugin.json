@@ -1,0 +1,50 @@
+{
+  "name": "prompt-pilot",
+  "version": "0.1.0",
+  "description": "Picks the model and effort for each prompt (you confirm), and upgrades substantial prompts through a short question panel before they run",
+  "author": {
+    "name": "Fox1304",
+    "url": "https://github.com/Fox1304"
+  },
+  "homepage": "https://github.com/Fox1304/FR_Claude_PromptUpgrader",
+  "repository": "https://github.com/Fox1304/FR_Claude_PromptUpgrader",
+  "license": "MIT",
+  "keywords": [
+    "claude-code",
+    "mod",
+    "hooks"
+  ],
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "opusModel": {
+      "type": "string",
+      "title": "Opus model id",
+      "description": "The model the chooser sends Opus prompts to.",
+      "default": "claude-opus-5-5"
+    },
+    "sonnetModel": {
+      "type": "string",
+      "title": "Sonnet model id",
+      "description": "The model the chooser sends Sonnet prompts to.",
+      "default": "claude-sonnet-5-5"
+    },
+    "haikuModel": {
+      "type": "string",
+      "title": "Haiku model id",
+      "description": "The model the chooser sends Haiku prompts to, and the one that reads prompts.",
+      "default": "claude-haiku-4-5-20251001"
+    },
+    "cacheMinutes": {
+      "type": "number",
+      "title": "Prompt cache lifetime (minutes)",
+      "description": "How long a model's prompt cache stays warm after its last answer; switching models costs nothing extra once it has gone cold.",
+      "default": 60
+    },
+    "usageWarnPercent": {
+      "type": "number",
+      "title": "Warn at plan usage (%)",
+      "description": "A warning shows when the 5-hour or weekly window passes this share (and again at 95%).",
+      "default": 80
+    }
+  }
+}
