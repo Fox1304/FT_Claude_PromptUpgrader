@@ -57,7 +57,14 @@ In a **terminal** Claude Code session (the desktop app's Code tab does not offer
 
 Answer `y` to add the marketplace, then pick the **user** scope so it loads in every project. The mod is active at once in that session, and in every session started afterwards, including the desktop app.
 
-To remove it: `/plugin uninstall prompt-pilot`.
+Or from a shell, with the same result:
+
+```
+claude plugin marketplace add Fox1304/FR_Claude_PromptUpgrader
+claude plugin install prompt-pilot@claude-prompt-upgrader --scope user
+```
+
+To remove it: `/plugin uninstall prompt-pilot`, or `claude plugin uninstall prompt-pilot@claude-prompt-upgrader`.
 
 ### Run it from a clone instead
 
