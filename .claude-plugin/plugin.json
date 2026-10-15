@@ -6,8 +6,8 @@
     "name": "Fox1304",
     "url": "https://github.com/Fox1304"
   },
-  "homepage": "https://github.com/Fox1304/FR_Claude_PromptUpgrader",
-  "repository": "https://github.com/Fox1304/FR_Claude_PromptUpgrader",
+  "homepage": "https://github.com/Fox1304/FT_Claude_PromptUpgrader",
+  "repository": "https://github.com/Fox1304/FT_Claude_PromptUpgrader",
   "license": "MIT",
   "keywords": [
     "claude-code",
@@ -32,7 +32,7 @@
       "type": "string",
       "title": "Haiku model id",
       "description": "The model the chooser sends Haiku prompts to, and the one that reads prompts.",
-      "default": "claude-haiku-4-5-20251001"
+      "default": "claude-haiku-5-5"
     },
     "cacheMinutes": {
       "type": "number",

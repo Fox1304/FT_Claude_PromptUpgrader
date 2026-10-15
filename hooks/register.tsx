@@ -59,7 +59,7 @@ const upgraderOn = atom({ plugin: 'prompt-pilot', key: 'upgraderOn' } as const, 
 
 /** Model ids, cache lifetime and warning level, from the mod's settings. */
 const config = {
-  ids: { opus: 'claude-opus-5-5', sonnet: 'claude-sonnet-5-5', haiku: 'claude-haiku-4-5-20251001' } as Record<ModelName, string>,
+  ids: { opus: 'claude-opus-5-5', sonnet: 'claude-sonnet-5-5', haiku: 'claude-haiku-5-5' } as Record<ModelName, string>,
   cacheMs: 60 * 60_000,
   warnAt: 80,
 }

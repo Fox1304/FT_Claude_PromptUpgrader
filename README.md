@@ -43,7 +43,7 @@ Put them at the start or the end of a prompt; they are removed before it is sent
 
 - **Claude Code 2.1.288 or later** (terminal, or the desktop app's Code tab).
 - **Mods (plugin hooks modules) enabled for your account.** They are an early-access feature that Anthropic switches on per account. When the switch is off, Claude Code still installs the mod but does not load it.
-- Access to the models it uses: by default `claude-opus-5-5`, `claude-sonnet-5-5` and `claude-haiku-4-5-20251001` (change them in the options). The upgrader's reads and rewrites run on your own account, like any other Claude Code request.
+- Access to the models it uses: by default `claude-opus-5-5`, `claude-sonnet-5-5` and `claude-haiku-5-5` (change them in the options). The upgrader's reads and rewrites run on your own account, like any other Claude Code request.
 - macOS for one fallback only: when the app cannot put text in your prompt box or clipboard, the mod uses `pbcopy`. Elsewhere that one fallback is skipped.
 - No other dependency: no npm install, no build step.
 
@@ -52,7 +52,7 @@ Put them at the start or the end of a prompt; they are removed before it is sent
 In a **terminal** Claude Code session (the desktop app's Code tab does not offer this command), type:
 
 ```
-/plugin install prompt-pilot --marketplace Fox1304/FR_Claude_PromptUpgrader
+/plugin install prompt-pilot --marketplace Fox1304/FT_Claude_PromptUpgrader
 ```
 
 Answer `y` to add the marketplace, then pick the **user** scope so it loads in every project. The mod is active at once in that session, and in every session started afterwards, including the desktop app.
@@ -60,7 +60,7 @@ Answer `y` to add the marketplace, then pick the **user** scope so it loads in e
 Or from a shell, with the same result:
 
 ```
-claude plugin marketplace add Fox1304/FR_Claude_PromptUpgrader
+claude plugin marketplace add Fox1304/FT_Claude_PromptUpgrader
 claude plugin install prompt-pilot@claude-prompt-upgrader --scope user
 ```
 
@@ -69,8 +69,8 @@ To remove it: `/plugin uninstall prompt-pilot`, or `claude plugin uninstall prom
 ### Run it from a clone instead
 
 ```
-git clone https://github.com/Fox1304/FR_Claude_PromptUpgrader.git
-claude --plugin-dir ./FR_Claude_PromptUpgrader
+git clone https://github.com/Fox1304/FT_Claude_PromptUpgrader.git
+claude --plugin-dir ./FT_Claude_PromptUpgrader
 ```
 
 To load it in every session without installing it, add the clone's absolute path to `env.CLAUDE_CODE_PLUGIN_DIRS` in `~/.claude/settings.json`.
@@ -91,7 +91,7 @@ Set them in `/config` (or under `pluginConfigs` in `~/.claude/settings.json`):
 |---|---|---|
 | `opusModel` | `claude-opus-5-5` | the model id used for Opus picks |
 | `sonnetModel` | `claude-sonnet-5-5` | the model id used for Sonnet picks and rewrites |
-| `haikuModel` | `claude-haiku-4-5-20251001` | the model id used for Haiku picks and for reading prompts |
+| `haikuModel` | `claude-haiku-5-5` | the model id used for Haiku picks and for reading prompts |
 | `cacheMinutes` | `60` | how long a model's prompt cache counts as warm after its last answer |
 | `usageWarnPercent` | `80` | plan usage share that triggers a warning |
 
