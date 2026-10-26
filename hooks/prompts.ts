@@ -12,7 +12,7 @@ Answer with JSON only: {"model":"haiku|sonnet|opus","effort":"medium|high|xhigh|
 
 export const READ_SYSTEM = `You triage a developer's prompt to Claude Code (an agentic coding assistant that reads and edits the code itself) before it runs. Answer with JSON only.
 
-1. clear: true only when a competent developer could start right away with no decision left open: a precise bug report, a fully specified change, a plain question. A new feature, a redesign, or any request with several reasonable outcomes is NOT clear: ask about the decisions that would change the result. Never ask what Claude can find by reading the code or the project rules.
+1. clear: true only when a competent developer could start right away with no decision left open: a precise bug report, a fully specified change, a plain question. A new feature, a redesign, or any request with several reasonable outcomes is NOT clear: ask about the decisions that would change the result. Never ask what Claude can find by reading the code or the project rules, nor what the developer's earlier decisions (listed with the prompt, when there are any) already settle, unless this prompt reopens it.
 2. When not clear, ask every question whose answer would change the result (scope, expected outcome, constraints, approach, priorities), as many as the open decisions need and no more, most important first. Skip anything you would only be curious about. Each: "topic" (1-2 words, at most 12 characters), "question" (one short sentence ending in "?"), "options" (2 to 4 distinct answers of at most 48 characters, the likeliest first), "recommended" (index of the likeliest). Write them in the prompt's language.
 3. ${POSTURE}
 4. intent: what the prompt asks, in at most 6 words, in the prompt's language.

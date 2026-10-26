@@ -1,4 +1,4 @@
-import type { Effort, ModelName, Pick, SwitchCost, TrustEntry, TurnCost, UpgradeQuestion } from '../types'
+import type { Effort, HoldMode, ModelName, Pick, RememberedAnswer, SwitchCost, TrustEntry, TurnCost, UpgradeAnswer, UpgradeQuestion } from '../types'
 
 // ── The ladder ────────────────────────────────────────────────────────────
 
@@ -529,4 +529,94 @@ export const answersText = (questions: UpgradeQuestion[], answers: Record<string
   if (extra.trim()) lines.push(`- Also: ${extra.trim()}`)
 
   return lines.join('\n')
+}
+
+// ── Batches of questions ───────────────────────────────────────────────────
+
+/** The upgrader asks its questions this many at a time. */
+export const BATCH_SIZE = 3
+
+export const batchCount = (questions: readonly UpgradeQuestion[]) => Math.max(1, Math.ceil(questions.length / BATCH_SIZE))
+
+/** The questions of one batch. */
+export const batchOf = <T>(questions: readonly T[], batch: number) => questions.slice(batch * BATCH_SIZE, (batch + 1) * BATCH_SIZE)
+
+/** The questions asked so far: every batch up to and including this one. Only these reach the rewrite. */
+export const seenQuestions = <T>(questions: readonly T[], batch: number) => questions.slice(0, (batch + 1) * BATCH_SIZE)
+
+/** "Questions 1–3 of 7", or "1 question" / "2 questions" when they fit in one batch. */
+export const batchLabel = (count: number, batch: number) => {
+  if (count <= BATCH_SIZE) return count === 1 ? '1 question' : `${count} questions`
+  const from = batch * BATCH_SIZE + 1
+  const to = Math.min(count, (batch + 1) * BATCH_SIZE)
+
+  return from === to ? `Question ${from} of ${count}` : `Questions ${from}–${to} of ${count}`
+}
+
+// ── Answers remembered per project ─────────────────────────────────────────
+
+/** How many answers a project keeps; the oldest go first. */
+export const MEMORY_KEPT = 40
+
+/** Lower case, accents and punctuation off, spaces squeezed: how two questions are compared. */
+export const plainWords = (text: string) =>
+  text
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+
+const memoryKey = (one: { topic: string; question: string }) => `${plainWords(one.topic)}|${plainWords(one.question)}`
+
+/** Adds the newly given answers; a question answered again keeps only its newest answer. */
+export const rememberAnswers = (memory: readonly RememberedAnswer[], given: readonly RememberedAnswer[]) => {
+  const fresh = given.filter(one => one.answer.trim() !== '')
+  const keys = new Set(fresh.map(memoryKey))
+
+  return [...memory.filter(one => !keys.has(memoryKey(one))), ...fresh].sort((a, b) => a.at - b.at).slice(-MEMORY_KEPT)
+}
+
+/** The remembered answer for a question: the same question first, else the newest answer on the same topic. */
+export const recall = (question: UpgradeQuestion, memory: readonly RememberedAnswer[]) => {
+  const same = memory.filter(one => plainWords(one.question) === plainWords(question.question))
+  const topic = memory.filter(one => plainWords(one.topic) === plainWords(question.topic))
+  const pool = same.length > 0 ? same : topic
+
+  return [...pool].sort((a, b) => b.at - a.at)[0]
+}
+
+/** A question's starting answer: the remembered one when there is one (an option it names, else its words), else the recommendation. */
+export const startingAnswer = (question: UpgradeQuestion, memory: readonly RememberedAnswer[]): UpgradeAnswer => {
+  const found = recall(question, memory)
+  if (!found) return { choice: question.recommended }
+  const choice = question.options.findIndex(option => plainWords(option) === plainWords(found.answer))
+
+  return choice >= 0 ? { choice, remembered: true } : { choice: question.recommended, text: found.answer, remembered: true }
+}
+
+/** The words of an answer: the person's own, else the option chosen. */
+export const answerWords = (question: UpgradeQuestion, answer: UpgradeAnswer | undefined) =>
+  answer?.text?.trim() || (answer?.choice !== undefined ? (question.options[answer.choice] ?? '') : '')
+
+/** What the read is told about this project's earlier decisions, newest first; empty when there are none. */
+export const memoryBlock = (memory: readonly RememberedAnswer[], max = 12) => {
+  const newest = [...memory].sort((a, b) => b.at - a.at).slice(0, max)
+  if (newest.length === 0) return ''
+
+  return `Decisions the developer already made in this project, in earlier prompts (newest first):\n${newest.map(one => `- ${one.topic}: ${one.question} → ${one.answer}`).join('\n')}`
+}
+
+// ── Where a prompt can be held ─────────────────────────────────────────────
+
+/**
+ * The panel only where a surface that places panes is attached and the prompt was typed there; the question dialog
+ * when it came over Remote Control (a phone, the web) or only a phone is attached; not held at all when nothing
+ * draws (a headless run), so no prompt ever waits for a panel nobody can see.
+ */
+export const holdMode = (origin: string, surfaces: readonly string[]): HoldMode => {
+  if (surfaces.length === 0) return 'pass'
+  if (origin === 'bridge') return 'dialog'
+
+  return surfaces.some(surface => surface !== 'mobile') ? 'panel' : 'dialog'
 }

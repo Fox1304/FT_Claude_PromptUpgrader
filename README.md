@@ -2,7 +2,7 @@
 
 A Claude Code mod that works on every prompt you send, in two parts you can switch on and off separately:
 
-- **Prompt upgrader**: when a prompt asks for something substantial but leaves things open, it is held for a moment while a small model reads it. Clear prompts go through untouched. Otherwise a panel asks you the short questions that would change the result (as many as the prompt needs), then offers a rewritten prompt you can launch, edit, copy or drop in favour of your original.
+- **Prompt upgrader**: when a prompt asks for something substantial but leaves things open, it is held for a moment while a small model reads it. Clear prompts go through untouched. Otherwise a panel asks you the short questions that would change the result, three at a time (as many as the prompt needs), then offers a rewritten prompt you can launch, edit, copy or drop in favour of your original.
 - **Model chooser**: picks the model (Opus, Sonnet, Haiku) and the effort (Medium, High, Extra, Max) that fit each prompt, and asks you to confirm when it matters.
 
 The two live in one mod because the upgrader must run first and hand the chooser the model it settled on.
@@ -16,9 +16,17 @@ The mod's plugin name is `prompt-pilot`.
 - Runs on prompts of 12 words or more that are not an answer to a question Claude just asked, and have no attachment.
 - A small model (Haiku) reads the prompt with the start of your project's `CLAUDE.md` as context. If the prompt is clear, it runs as typed, with « ✓ Your prompt is clear ».
 - If not, the prompt is held and the **Prompt upgrader** pane opens:
-  - as many questions as the open decisions need, each with ready answers (●/○) or « Or type your own answer… », plus « Anything to add? »;
-  - **Improve**: Sonnet rewrites the prompt with your answers and proposes a model and effort;
+  - as many questions as the open decisions need, three at a time (**Next questions →**, **← Previous**), each with ready answers (●/○) or « Or type your own answer… », plus « Anything to add? »;
+  - your answers are remembered per project (on this machine only) and offered first next time, marked « ↺ Your earlier answer in this project »; the small model is also told not to ask again what they already settle;
+  - **Improve** (or **Improve now** before the last questions): Sonnet rewrites the prompt with the answers to the questions asked so far and proposes a model and effort;
   - then **Launch** on the proposed model, change the model or effort, « Ask for a change », **Copy**, **Edit in box** (puts it back in your prompt box), **Send original**, or **Cancel** (your prompt comes back to the box).
+
+### Remote sessions
+
+- A prompt is held in the panel only when a screen that shows panels (the terminal, the desktop app, VS Code) is attached and the prompt was typed there.
+- A prompt sent from a phone or the web over Remote Control, or a session where only the phone app is attached, gets the same questions in Claude Code's own question dialog instead: one dialog per question, in groups of three with « Next questions » or « Improve now » between groups, then one confirm: run the improved prompt or yours as typed. The prompt always runs.
+- A headless run with nothing attached (`claude -p`, the Agent SDK) is never held, read or asked.
+- Where nothing can be copied (a phone, a cloud machine), no prompt is dropped: « New conversation » runs it here instead, « Edit in box » keeps the panel open with the prompt to select, and Cancel leaves it in the conversation.
 
 ### Model chooser
 
@@ -66,6 +74,21 @@ claude plugin install prompt-pilot@claude-prompt-upgrader --scope user
 
 To remove it: `/plugin uninstall prompt-pilot`, or `claude plugin uninstall prompt-pilot@claude-prompt-upgrader`.
 
+### In cloud sessions (claude.ai/code)
+
+A cloud session reads only the repository's own settings, so a mod installed on your machine is not there. To have it in a project's cloud sessions, add this to that repository's `.claude/settings.json`:
+
+```json
+{
+  "extraKnownMarketplaces": {
+    "claude-prompt-upgrader": { "source": { "source": "github", "repo": "Fox1304/FT_Claude_PromptUpgrader" } }
+  },
+  "enabledPlugins": { "prompt-pilot@claude-prompt-upgrader": true }
+}
+```
+
+Leave it out of a project where you already load the mod from a folder (`--plugin-dir` or `CLAUDE_CODE_PLUGIN_DIRS`), so it does not load twice. Mods must also be enabled for the account the cloud session runs as.
+
 ### Run it from a clone instead
 
 ```
@@ -80,6 +103,7 @@ To load it in every session without installing it, add the clone's absolute path
 Type prompts as usual. Then:
 
 - `/upgrader on`, `/upgrader off`: switch the prompt upgrader on or off in every session.
+- `/upgrader forget`: forget the answers remembered for the current project.
 - `/chooser on`, `/chooser off`: the same for the model chooser; `/chooser reset` makes it ask for confirmation again.
 - Esc or **Cancel** in the upgrader pane gives you your prompt back, untouched.
 
@@ -97,7 +121,7 @@ Set them in `/config` (or under `pluginConfigs` in `~/.claude/settings.json`):
 
 ## Your data
 
-The mod keeps its switches and what it learned (kept recommendations, the average cost of a turn per model and effort) in Claude Code's own plugin store (`~/.claude/plugins/store/`). It sends nothing anywhere except to Claude, through your own Claude Code session.
+The mod keeps its switches and what it learned (kept recommendations, the average cost of a turn per model and effort, and your answers per project, keyed by the project's folder) in Claude Code's own plugin store (`~/.claude/plugins/store/`), on this machine only: never in your repository, never on a server. Remembered answers go to Claude only as part of reading a new prompt of the same project, through your own Claude Code session. `/upgrader forget` clears them.
 
 ## Development
 

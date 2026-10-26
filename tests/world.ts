@@ -1,4 +1,4 @@
-import type { On, SessionMessage } from 'claude-code'
+import type { On, RenderSurface, SessionMessage } from 'claude-code'
 
 export const PANE = {
   plugin: 'prompt-pilot',
@@ -31,6 +31,9 @@ export const USAGE = { input_tokens: 10, output_tokens: 10, cache_creation_input
 
 export type Asked = { question: string; header: string; options: string[] }
 
+/** One question as a dialog showed it, with each option's line. */
+export type DialogQuestion = { question: string; header: string; options: string[]; descriptions: string[] }
+
 export type Setup = {
   /** The conversation so far. */
   messages?: SessionMessage[]
@@ -42,8 +45,14 @@ export type Setup = {
   haiku?: string[]
   /** Sonnet's replies, in order (rewrites). */
   sonnet?: string[]
-  /** What the person picks in each confirm dialog, in order; undefined = dismissed. */
-  picks?: (string | undefined)[]
+  /** What the person picks in each dialog, in order; a list answers a dialog of several questions; undefined = dismissed. */
+  picks?: (string | readonly string[] | undefined)[]
+  /** The surfaces attached (default: the desktop app); [] is a headless run. */
+  surfaces?: RenderSurface[]
+  /** False: no clipboard takes text (a phone, a cloud session). */
+  copies?: boolean
+  /** The repository's root (default: none, so the session's folder names the project). */
+  repoRoot?: string
   /** False: the panel cannot be placed (a bare -p run). */
   placesPanes?: boolean
   /** False: the prompt box takes nothing (a headless host). */
@@ -63,6 +72,8 @@ export const world = (on: On, setup: Setup = {}) => {
   const sonnet = [...(setup.sonnet ?? [])]
   const picks = [...(setup.picks ?? [])]
   const asked: Asked[] = []
+  /** Every dialog, each with all of its questions. */
+  const dialogs: DialogQuestion[][] = []
   const submitted: { text: string; origin: string; asUser: boolean }[] = []
   const completions: { model: string; system: string; prompt: string }[] = []
   const toasts: string[] = []
@@ -104,10 +115,17 @@ export const world = (on: On, setup: Setup = {}) => {
   on('tool.call', { tool: 'AskUserQuestion' }, ($, e) => {
     const [question] = e.questions
     if (question) asked.push({ question: question.question, header: question.header, options: question.options.map(one => one.label) })
+    dialogs.push(
+      e.questions.map(one => ({ question: one.question, header: one.header, options: one.options.map(option => option.label), descriptions: one.options.map(option => option.description ?? '') })),
+    )
     const reply = picks.shift()
+    const replies = typeof reply === 'string' ? [reply] : (reply ?? [])
+    const answers = Object.fromEntries(e.questions.flatMap((one, index) => (replies[index] === undefined ? [] : [[one.question, replies[index]]])))
 
-    return { result: { questions: e.questions, answers: reply === undefined || !question ? {} : { [question.question]: reply } } }
+    return { result: { questions: e.questions, answers } }
   })
+  on('session.surfaces', () => ({ value: setup.surfaces ?? ['desktop'] }))
+  on('session.repo', () => ({ value: setup.repoRoot ? { root: setup.repoRoot, remote: null, internal: false, name: null } : null }))
   on('prompt.submit', ($, e) => {
     submitted.push({ text: e.text, origin: e.origin.kind, asUser: e.origin.kind === 'plugin' && e.origin.asUser === true })
 
@@ -130,6 +148,7 @@ export const world = (on: On, setup: Setup = {}) => {
     return { isFilled: true }
   })
   on('ui.copy', ($, e) => {
+    if (setup.copies === false) return { value: { isCopied: false, reason: 'no-clipboard' as const } }
     copied.push(e.text)
 
     return { value: { isCopied: true } }
@@ -157,7 +176,7 @@ export const world = (on: On, setup: Setup = {}) => {
     return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'end_turn' as const, usage: null }
   })
 
-  return { window, logs, asked, submitted, completions, toasts, statuses, copied, filled, opened, closed, steps, stored }
+  return { window, logs, asked, dialogs, submitted, completions, toasts, statuses, copied, filled, opened, closed, steps, stored }
 }
 
 /** A typed prompt, as the person's Enter raises it. */

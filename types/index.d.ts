@@ -35,8 +35,17 @@ export type UpgradeQuestion = {
   recommended: number
 }
 
-/** A question's answer: an option, or the person's own words (which win). */
-export type UpgradeAnswer = { choice?: number; text?: string }
+/**
+ * A question's answer: an option, or the person's own words (which win).
+ * `touched`: the person chose or typed it; `remembered`: it came from this project's memory.
+ */
+export type UpgradeAnswer = { choice?: number; text?: string; touched?: boolean; remembered?: boolean }
+
+/** An answer the person gave in an earlier upgrade of the same project, kept on this machine only. */
+export type RememberedAnswer = { topic: string; question: string; answer: string; at: number }
+
+/** How a held prompt is worked on: the panel, the question dialog (a phone, the web), or not held at all. */
+export type HoldMode = 'panel' | 'dialog' | 'pass'
 
 export type UpgradeStage = 'questions' | 'writing' | 'ready' | 'failed'
 
@@ -59,6 +68,8 @@ export type Upgrade = {
   /** What the prompt asks, in six words or fewer. */
   intent: string
   questions: UpgradeQuestion[]
+  /** Which group of three questions the panel shows (0 first); the questions before it were seen too. */
+  batch: number
   answers: Record<string, UpgradeAnswer>
   /** "Anything to add?" */
   extra: string

@@ -1,17 +1,23 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, PromptOrigin, Register, RenderSurface } from 'claude-code'
 
-import type { Effort, ModelName, Pick, SwitchCost, TrustEntry, TurnCost, Upgrade, UpgradeQuestion, UsageWindow } from '../types'
+import type { Effort, ModelName, Pick, RememberedAnswer, SwitchCost, TrustEntry, TurnCost, Upgrade, UpgradeAnswer, UpgradeQuestion, UsageWindow } from '../types'
 import {
+  BATCH_SIZE,
   EFFORTS,
   EFFORT_LABEL,
   TRUST_AFTER,
   MODELS,
   MODEL_LABEL,
+  answerWords,
   answersText,
+  batchCount,
+  batchLabel,
+  batchOf,
   costKey,
   costText,
   estimateTurn,
+  holdMode,
   isContinuation,
   isTrusted,
   keepIfTooLong,
@@ -19,6 +25,7 @@ import {
   kindKey,
   kindOf,
   label,
+  memoryBlock,
   meter,
   neighbours,
   parseClassify,
@@ -27,9 +34,12 @@ import {
   parseRewrite,
   parseTags,
   recordAnswer,
+  rememberAnswers,
   recordTurnCost,
   rulePick,
   samePick,
+  seenQuestions,
+  startingAnswer,
   switchCost,
   tierOf,
   wordCount,
@@ -137,15 +147,61 @@ const contextBlock = (conv: Conversation) =>
     .filter(Boolean)
     .join('\n')
 
+// ── Answers remembered per project (this machine's plugin store only) ─────
+
+/** The project an answer belongs to: the repository's root (its worktrees share it), else the session's folder. */
+const projectOf = async ($: EngineInterface) => {
+  try {
+    const repo = await $.session.repo()
+    if (repo?.root) return repo.root
+  } catch {
+    // no repository: the folder below
+  }
+
+  return $.session.root()
+}
+
+const memoryKeyOf = async ($: EngineInterface) => `answers:${await projectOf($)}`
+
+/** This project's remembered answers, oldest first. Kept in Claude Code's plugin store on this machine, never in the repository. */
+const loadMemory = async ($: EngineInterface): Promise<RememberedAnswer[]> => {
+  const value = await $.store.get(await memoryKeyOf($))
+
+  return Array.isArray(value) ? (value as RememberedAnswer[]) : []
+}
+
+/** Keeps the answers the person gave (or kept from memory) for the next prompts of this project. */
+const saveAnswers = async ($: EngineInterface, questions: readonly UpgradeQuestion[], answers: Record<string, UpgradeAnswer>) => {
+  const now = await $.clock.now()
+  const given: RememberedAnswer[] = questions.flatMap(question => {
+    const answer = answers[question.id]
+    const words = answerWords(question, answer)
+    if (!words || !(answer?.touched || answer?.remembered)) return []
+
+    return [{ topic: question.topic, question: question.question, answer: words, at: now }]
+  })
+  if (given.length === 0) return
+  await $.store.set(await memoryKeyOf($), rememberAnswers(await loadMemory($), given))
+}
+
+/** Where the session draws now; an engine that cannot say is taken as a terminal, as before. */
+const surfacesOf = async ($: EngineInterface): Promise<readonly string[]> => {
+  try {
+    return await $.session.surfaces()
+  } catch {
+    return ['terminal']
+  }
+}
+
 /** Haiku reads a substantial prompt: clear or not, the questions worth asking, and the pick. */
-const readPrompt = async ($: EngineInterface, text: string, conv: Conversation, fallback: Pick): Promise<Read | undefined> => {
+const readPrompt = async ($: EngineInterface, text: string, conv: Conversation, fallback: Pick, memory: readonly RememberedAnswer[]): Promise<Read | undefined> => {
   const rules = await projectRules($)
   const reply = await $.model.complete({
     model: 'haiku',
     system: READ_SYSTEM,
     prompt: [
       { text: rules ? `Project rules (start of CLAUDE.md):\n${rules}` : 'This project has no rules file.', cache: true },
-      { text: `${contextBlock(conv)}\n\nPrompt to triage:\n<<<\n${clip(text, 6000)}\n>>>` },
+      { text: `${contextBlock(conv)}${memoryBlock(memory) ? `\n\n${memoryBlock(memory)}` : ''}\n\nPrompt to triage:\n<<<\n${clip(text, 6000)}\n>>>` },
     ],
     // Room for a long list of questions: a reply cut short is unreadable JSON and shows no panel at all.
     maxTokens: 4000,
@@ -312,19 +368,91 @@ const handOffToNewConversation = async ($: EngineInterface, text: string, surfac
     const fork = await $.model.fork({ prompt: RECAP_PROMPT })
     const recap = fork.isAnswered ? fork.text.trim() : ''
     const whole = recap ? `Context from an earlier session:\n${recap}\n\n---\n\n${text}` : text
-    const copied = await copyText($, whole, surface)
+    const isCopied = await copyText($, whole, surface)
 
-    return copied
-      ? `Copied your prompt${recap ? ' with a short recap' : ''}: open a new conversation and paste it.`
-      : "Couldn't reach the clipboard: your prompt was not sent."
+    return {
+      isCopied,
+      text: isCopied
+        ? `Copied your prompt${recap ? ' with a short recap' : ''}: open a new conversation and paste it.`
+        : "Couldn't reach the clipboard: nothing was copied.",
+    }
   } finally {
     await setBusy($, '')
   }
 }
 
+// ── The upgrader in the question dialog (a phone, the web) ─────────────────
+
+/**
+ * One batch of questions, one dialog each (the engine's own question dialog, which every surface draws; a mod asks
+ * one question at a time). Undefined when the first is dismissed; a later dismissal keeps what was answered.
+ */
+const askBatch = async ($: EngineInterface, questions: readonly UpgradeQuestion[], answers: Record<string, UpgradeAnswer>) => {
+  const got: Record<string, UpgradeAnswer> = {}
+  for (const question of questions) {
+    const start = answers[question.id]
+    const own = start?.text?.trim()
+    const first = own ? undefined : start?.choice
+    // The starting answer comes first: a remembered one, else the recommendation.
+    const ordered = first === undefined ? [...question.options] : [question.options[first] ?? '', ...question.options.filter((_, index) => index !== first)]
+    const labels = own ? [clip(own, 48), ...ordered].slice(0, 4) : ordered
+    const said = await askOne($, `${question.question}${start?.remembered ? ' (first: your earlier answer)' : ''}`, question.topic.slice(0, 12), labels)
+    if (said === undefined) break
+    const choice = question.options.indexOf(said)
+    got[question.id] =
+      choice >= 0
+        ? { choice, touched: true }
+        : own && clip(own, 48) === said
+          ? { ...start, touched: true }
+          : { choice: question.recommended, text: said, touched: true }
+  }
+
+  return Object.keys(got).length > 0 ? got : undefined
+}
+
+/**
+ * The upgrader without its panel, for a prompt that came from a phone or the web: the questions three at a time in
+ * the dialog, then the rewrite, then one confirm. Undefined: run the prompt as typed (never held, never lost).
+ */
+const upgradeByDialog = async ($: EngineInterface, original: string, triage: Read, pick: Pick, memory: readonly RememberedAnswer[]) => {
+  const answers: Record<string, UpgradeAnswer> = Object.fromEntries(triage.questions.map(question => [question.id, startingAnswer(question, memory)]))
+  const asked: UpgradeQuestion[] = []
+  const batches = batchCount(triage.questions)
+  for (let batch = 0; batch < batches; batch += 1) {
+    const group = batchOf(triage.questions, batch)
+    const got = await askBatch($, group, answers)
+    if (got === undefined) break
+    Object.assign(answers, got)
+    asked.push(...group.filter(question => got[question.id] !== undefined))
+    if (Object.keys(got).length < group.length || batch === batches - 1) break
+    // Between groups of three: go on, or write the prompt with what is answered.
+    const left = triage.questions.length - (batch + 1) * BATCH_SIZE
+    const more = await askOne($, `${left === 1 ? 'One more question' : `${left} more questions`} could sharpen it. Go on?`, 'Upgrader', ['Next questions', 'Improve now'])
+    if (more !== 'Next questions') break
+  }
+  if (asked.length === 0) return undefined
+  await saveAnswers($, asked, answers)
+  await setBusy($, 'Writing your improved prompt…')
+  let written: Awaited<ReturnType<typeof rewritePrompt>>
+  try {
+    written = await rewritePrompt($, { original, pick, questions: asked, answers, extra: '' })
+  } finally {
+    await setBusy($, '')
+  }
+  if (!written.parsed) {
+    $.ui.toast("Couldn't write the improved prompt: sending yours as typed.")
+
+    return undefined
+  }
+  const run = 'Run the improved prompt'
+  const answer = await askOne($, `Run the improved prompt?\n\n${clip(written.parsed.prompt, 900)}`, 'Upgrader', [run, 'Send mine as typed'])
+
+  return answer === run ? written.parsed : undefined
+}
+
 // ── The upgrader's panel ───────────────────────────────────────────────────
 
-const openUpgrade = async ($: EngineInterface, original: string, triage: Read, pick0: Pick, isForced: boolean, chooser: boolean, conv: Conversation) => {
+const openUpgrade = async ($: EngineInterface, original: string, triage: Read, pick0: Pick, isForced: boolean, chooser: boolean, conv: Conversation, memory: readonly RememberedAnswer[]) => {
   const now = await $.clock.now()
   const from = conv.hasHistory ? await currentPick($) : null
   const clock = await read($, cache)
@@ -336,7 +464,8 @@ const openUpgrade = async ($: EngineInterface, original: string, triage: Read, p
     original,
     intent: triage.intent,
     questions: triage.questions,
-    answers: Object.fromEntries(triage.questions.map(question => [question.id, { choice: question.recommended }])),
+    batch: 0,
+    answers: Object.fromEntries(triage.questions.map(question => [question.id, startingAnswer(question, memory)])),
     extra: '',
     improved: '',
     previous: [],
@@ -364,11 +493,20 @@ const changeUpgrade = async ($: EngineInterface, change: (up: Upgrade) => Upgrad
 }
 
 const choose = async ($: EngineInterface, id: string, choice: number) => {
-  await changeUpgrade($, up => ({ ...up, answers: { ...up.answers, [id]: { choice } } }))
+  await changeUpgrade($, up => ({ ...up, answers: { ...up.answers, [id]: { choice, touched: true } } }))
 }
 
 const typeOwn = async ($: EngineInterface, id: string, text: string) => {
-  await changeUpgrade($, up => ({ ...up, answers: { ...up.answers, [id]: { ...up.answers[id], text } } }))
+  await changeUpgrade($, up => ({ ...up, answers: { ...up.answers, [id]: { ...up.answers[id], text, touched: true } } }))
+}
+
+/** The next three questions (the answers so far stay). */
+const nextBatch = async ($: EngineInterface) => {
+  await changeUpgrade($, up => ({ ...up, batch: Math.min(up.batch + 1, batchCount(up.questions) - 1) }))
+}
+
+const previousBatch = async ($: EngineInterface) => {
+  await changeUpgrade($, up => ({ ...up, batch: Math.max(0, up.batch - 1) }))
 }
 
 const typeExtra = async ($: EngineInterface, text: string) => {
@@ -389,23 +527,22 @@ const toggleChips = async ($: EngineInterface) => {
   await changeUpgrade($, up => ({ ...up, chipsOpen: !up.chipsOpen }))
 }
 
-/** Sonnet writes the improved prompt from the answers (or applies a requested change to it). */
-const writeUpgrade = async ($: EngineInterface, tweak?: string) => {
-  const start = await read($, upgrade)
-  if (!start || start.stage === 'writing') return
-  await update($, upgrade, () => ({ ...start, stage: 'writing' as const, error: '', notice: '' }))
+/** Sonnet writes the improved prompt from the answers to the questions asked (or applies a requested change to it). */
+const rewritePrompt = async (
+  $: EngineInterface,
+  job: { original: string; pick: Pick; questions: UpgradeQuestion[]; answers: Record<string, UpgradeAnswer>; extra: string; improved?: string; change?: string },
+) => {
   const rules = await projectRules($)
-  const change = tweak?.trim()
   const reply = await $.model.complete({
     model: 'sonnet',
-    system: REWRITE_SYSTEM(start.pick.model),
+    system: REWRITE_SYSTEM(job.pick.model),
     prompt: [
       { text: rules ? `Project rules (start of CLAUDE.md):\n${rules}` : 'This project has no rules file.', cache: true },
       {
         text: [
-          `Original prompt:\n<<<\n${start.original}\n>>>`,
-          `The developer's answers:\n${answersText(start.questions, start.answers, start.extra)}`,
-          change ? `Your current rewrite:\n<<<\n${start.improved}\n>>>\nApply this change to it: ${change}` : '',
+          `Original prompt:\n<<<\n${job.original}\n>>>`,
+          `The developer's answers:\n${answersText(job.questions, job.answers, job.extra)}`,
+          job.change ? `Your current rewrite:\n<<<\n${job.improved ?? ''}\n>>>\nApply this change to it: ${job.change}` : '',
         ]
           .filter(Boolean)
           .join('\n\n'),
@@ -415,7 +552,19 @@ const writeUpgrade = async ($: EngineInterface, tweak?: string) => {
     effort: 'low',
     timeoutMs: WRITE_TIMEOUT_MS,
   })
-  const parsed = reply.isAnswered ? parseRewrite(reply.text, start.pick) : undefined
+
+  return { reply, parsed: reply.isAnswered ? parseRewrite(reply.text, job.pick) : undefined }
+}
+
+/** The panel's rewrite: only the questions it has shown count, and the answers given are remembered for this project. */
+const writeUpgrade = async ($: EngineInterface, tweak?: string) => {
+  const start = await read($, upgrade)
+  if (!start || start.stage === 'writing') return
+  await update($, upgrade, () => ({ ...start, stage: 'writing' as const, error: '', notice: '' }))
+  const change = tweak?.trim()
+  const asked = seenQuestions(start.questions, start.batch)
+  if (!change) await saveAnswers($, asked, start.answers)
+  const { reply, parsed } = await rewritePrompt($, { original: start.original, pick: start.pick, questions: asked, answers: start.answers, extra: start.extra, improved: start.improved, change })
   const now = await $.clock.now()
   const clock = await read($, cache)
   await update($, upgrade, up => {
@@ -479,15 +628,19 @@ const editImproved = async ($: EngineInterface, surface: RenderSurface) => {
   const up = await read($, upgrade)
   if (!up?.improved) return
   const now = await $.clock.now()
+  const where = await fillBox($, up.improved, surface)
+  if (where === 'nowhere') {
+    // Nothing took it: the panel stays, with the prompt in it to select.
+    await changeUpgrade($, one => ({ ...one, notice: "Couldn't reach the box or the clipboard: select the prompt above to copy it." }))
+
+    return
+  }
   if (up.chooser) await update($, handoff, () => ({ pick: up.pick, until: now + HANDOFF_MS }))
   await closePane($)
-  const where = await fillBox($, up.improved, surface)
   $.ui.toast(
     where === 'box'
       ? 'The improved prompt is in the box: edit it, then press Enter.'
-      : where === 'clipboard'
-        ? 'Copied the improved prompt: paste it in the box, edit it, then press Enter.'
-        : "Couldn't reach the box or the clipboard.",
+      : 'Copied the improved prompt: paste it in the box, edit it, then press Enter.',
   )
 }
 
@@ -495,7 +648,7 @@ const newConversation = async ($: EngineInterface, surface: RenderSurface) => {
   const up = await read($, upgrade)
   if (!up) return
   const said = await handOffToNewConversation($, up.improved || up.original, surface)
-  await changeUpgrade($, one => ({ ...one, notice: said }))
+  await changeUpgrade($, one => ({ ...one, notice: said.isCopied ? said.text : `${said.text} Select the prompt above, or launch it here.` }))
 }
 
 /** The person closed the panel without running anything: their prompt goes back where they can use it. */
@@ -504,12 +657,14 @@ const cancelUpgrade = async ($: EngineInterface) => {
   if (!up) return
   await update($, upgrade, () => null)
   const where = await fillBox($, up.original)
+  // Where neither the box nor the clipboard takes it (a phone, a cloud session), the transcript keeps it to select.
+  if (where === 'nowhere') $.ui.log(`Prompt upgrader: your prompt, not sent:\n${up.original}`)
   $.ui.toast(
     where === 'box'
       ? 'Upgrade cancelled: your prompt is back in the box.'
       : where === 'clipboard'
         ? 'Upgrade cancelled: your prompt is on the clipboard.'
-        : 'Upgrade cancelled.',
+        : 'Upgrade cancelled: your prompt is in the conversation, to copy.',
   )
 }
 
@@ -566,6 +721,12 @@ const setToggle = async ($: EngineInterface, which: 'chooser' | 'upgrader', valu
 
 const toggleCommand = async ($: EngineInterface, which: 'chooser' | 'upgrader', args: string) => {
   const word = args.trim().toLowerCase()
+  if (which === 'upgrader' && word === 'forget') {
+    const kept = (await loadMemory($)).length
+    await $.store.set(await memoryKeyOf($), [])
+
+    return `Prompt upgrader: forgot the ${kept === 1 ? 'answer' : `${kept} answers`} kept for this project.`
+  }
   if (which === 'chooser' && word === 'reset') {
     await $.store.set('trust', {})
 
@@ -593,7 +754,7 @@ export const register: Register = (on, options) => {
 
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'chooser', description: 'Model chooser: picks the model and effort for each prompt (on, off; reset makes it ask again)', argumentHint: '[on|off|reset]', immediate: true })
-    await $.command.register({ name: 'upgrader', description: 'Prompt upgrader: improves substantial prompts with a short question panel (on, off)', argumentHint: '[on|off]', immediate: true })
+    await $.command.register({ name: 'upgrader', description: 'Prompt upgrader: improves substantial prompts with a short question panel (on, off; forget drops the answers kept for this project)', argumentHint: '[on|off|forget]', immediate: true })
     const [chooser, upgrader] = [await $.store.get('chooserOn'), await $.store.get('upgraderOn')]
     await update($, chooserOn, () => chooser !== false)
     await update($, upgraderOn, () => upgrader !== false)
@@ -634,17 +795,29 @@ export const register: Register = (on, options) => {
         ? { model: tags.model ?? current?.model ?? 'opus', effort: tags.effort ?? (tags.model === 'haiku' ? 'medium' : 'high'), reason: 'your choice', by: 'you' }
         : undefined
 
+    // The panel holds a prompt only where someone can see it; a phone or the web gets the dialog; a headless run is never held.
+    const mode = holdMode(e.origin.kind, await surfacesOf($))
     let triage: Read | undefined
-    if (upgrader && !tags.skipUpgrade && !hasAttachments && (tags.forceUpgrade || kind === 'substantial')) {
+    if (upgrader && mode !== 'pass' && !tags.skipUpgrade && !hasAttachments && (tags.forceUpgrade || kind === 'substantial')) {
+      const memory = await loadMemory($)
       await setBusy($, 'Reading your prompt…')
       try {
-        triage = await readPrompt($, text, conv, forced ?? rulePick(text, hasAttachments).pick)
+        triage = await readPrompt($, text, conv, forced ?? rulePick(text, hasAttachments).pick, memory)
       } finally {
         await setBusy($, '')
       }
       if (triage && (!triage.isClear || tags.forceUpgrade) && triage.questions.length > 0) {
-        const opened = await openUpgrade($, text, triage, forced ?? triage.pick, !!forced, chooser, conv)
+        const opened = mode === 'panel' && (await openUpgrade($, text, triage, forced ?? triage.pick, !!forced, chooser, conv, memory))
         if (opened) return { drop: '✨ Prompt upgrader: answer in its panel, then Launch (or Send as is).' }
+        // No panel to hold it in: the dialog asks, and the prompt runs either way.
+        const improved = await upgradeByDialog($, text, triage, forced ?? triage.pick, memory)
+        if (improved) {
+          const clock = await read($, cache)
+          const pick = forced ?? keepIfTooLong(keepStronger(improved.pick, current, switchCost(improved.pick, current, conv.contextTokens, clock, now, config.cacheMs)), current, conv.contextTokens)
+          if (chooser) await setActive($, pick)
+
+          return next({ ...e, text: improved.prompt })
+        }
       }
     }
     if (!chooser) return pass()
@@ -666,14 +839,20 @@ export const register: Register = (on, options) => {
       conv.contextTokens,
     )
     const cost = switchCost(kept, current, conv.contextTokens, clock, now, config.cacheMs)
-    const mustAsk = !forced && asked !== 'ack' && (asked === 'substantial' || !samePick(kept, current))
+    const mustAsk = mode !== 'pass' && !forced && asked !== 'ack' && (asked === 'substantial' || !samePick(kept, current))
     let final = kept
     if (mustAsk && cost.kind !== 'costly' && isTrusted(await loadTrust($), kindKey(kept))) final = { ...kept, by: 'trusted' }
     else if (mustAsk) {
       const decision = await confirmPick($, kept, current, cost, triage?.isClear === true, await loadCosts($))
-      if (decision.kind === 'new') return { drop: await handOffToNewConversation($, text) }
-      final = decision.pick
-      if (decision.agreed !== undefined) await learnAnswer($, kept, decision.agreed)
+      if (decision.kind === 'new') {
+        const said = await handOffToNewConversation($, text)
+        if (said.isCopied) return { drop: said.text }
+        // Nothing could be copied: the prompt runs here rather than being lost.
+        $.ui.toast(`${said.text} Running your prompt here instead.`)
+      } else {
+        final = decision.pick
+        if (decision.agreed !== undefined) await learnAnswer($, kept, decision.agreed)
+      }
     }
     await setActive($, final)
 
@@ -804,7 +983,7 @@ export const register: Register = (on, options) => {
         </Box>
       )
 
-    const step = up.stage === 'questions' ? 'Step 1 of 2 · A few questions' : up.stage === 'writing' ? 'Step 2 of 2 · Writing' : up.stage === 'ready' ? 'Step 2 of 2 · Ready' : 'Step 2 of 2'
+    const step = up.stage === 'questions' ? `Step 1 of 2 · ${batchLabel(up.questions.length, up.batch)}` : up.stage === 'writing' ? 'Step 2 of 2 · Writing' : up.stage === 'ready' ? 'Step 2 of 2 · Ready' : 'Step 2 of 2'
     const header = (
       <Box key="head" flexDirection="row" justifyContent="space-between">
         <Text bold color="claude">
@@ -871,7 +1050,8 @@ export const register: Register = (on, options) => {
         <Box flexDirection="column" paddingX={1} width={width}>
           {header}
           {original}
-          {up.questions.map((question: UpgradeQuestion, index: number) => {
+          {batchOf(up.questions, up.batch).map((question: UpgradeQuestion, offset: number) => {
+            const index = up.batch * BATCH_SIZE + offset
             const answer = up.answers[question.id] ?? {}
             const ownWords = answer.text?.trim() ?? ''
 
@@ -884,6 +1064,11 @@ export const register: Register = (on, options) => {
                   <Text bold> {question.topic.toUpperCase()}</Text>
                 </Text>
                 <Text wrap="wrap">{question.question}</Text>
+                {answer.remembered && !answer.touched ? (
+                  <Text key={`remembered:${question.id}`} dimColor>
+                    ↺ Your earlier answer in this project
+                  </Text>
+                ) : null}
                 <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
                   {question.options.map((option, choice) =>
                     chip(`opt:${question.id}:${choice}`, !ownWords && answer.choice === choice, option, () => void choose($, question.id, choice)),
@@ -910,7 +1095,22 @@ export const register: Register = (on, options) => {
           {pickLine}
           {up.chipsOpen ? modelRows : null}
           <Box key="actions" flexDirection="row" flexWrap="wrap" columnGap={2} marginTop={1}>
-            <Button key="improve" label="✨ Improve prompt" variant="primary" hotkey="i" autoFocus onPress={() => void writeUpgrade($)} />
+            {up.batch > 0 ? <Button key="back" label="← Previous" hotkey="b" onPress={() => void previousBatch($)} /> : null}
+            {up.batch < batchCount(up.questions) - 1 ? (
+              <Button
+                key="more"
+                label={`Next ${batchOf(up.questions, up.batch + 1).length === 1 ? 'question' : `${batchOf(up.questions, up.batch + 1).length} questions`} →`}
+                variant="primary"
+                hotkey="m"
+                autoFocus
+                onPress={() => void nextBatch($)}
+              />
+            ) : null}
+            {up.batch < batchCount(up.questions) - 1 ? (
+              <Button key="improve" label="✨ Improve now" hotkey="i" onPress={() => void writeUpgrade($)} />
+            ) : (
+              <Button key="improve" label="✨ Improve prompt" variant="primary" hotkey="i" autoFocus onPress={() => void writeUpgrade($)} />
+            )}
             <Button key="as-is" label="Send as is" hotkey="s" onPress={() => void launch($, 'original')} />
             <Button key="cancel" label="Cancel" hotkey="x" onPress={() => void cancelFromPane($)} />
           </Box>
@@ -927,7 +1127,7 @@ export const register: Register = (on, options) => {
             ◌ Writing your improved prompt…
           </Text>
           <Box key="answers" flexDirection="column" marginTop={1}>
-            {up.questions.map(question => {
+            {seenQuestions(up.questions, up.batch).map(question => {
               const answer = up.answers[question.id]
               const words = answer?.text?.trim() || (answer?.choice !== undefined ? question.options[answer.choice] : '')
 

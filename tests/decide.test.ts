@@ -18,6 +18,10 @@ import {
   recordTurnCost,
   rulePick,
   switchCost,
+  batchLabel,
+  holdMode,
+  rememberAnswers,
+  startingAnswer,
 } from '../hooks/decide'
 import type { Pick } from '../types'
 import { READ_SYSTEM } from '../hooks/prompts'
@@ -161,4 +165,29 @@ test('the read keeps every question the model asks, with no cap', async () => {
   expect(read?.questions.map(one => one.id)).toEqual(['q1', 'q2', 'q3', 'q4', 'q5', 'q6'])
   expect(READ_SYSTEM).toContain('as many as the open decisions need')
   expect(READ_SYSTEM).not.toMatch(/up to \d+ questions/)
+})
+
+test('questions come in batches of three, labelled for the panel', async () => {
+  expect(batchLabel(2, 0)).toBe('2 questions')
+  expect(batchLabel(7, 0)).toBe('Questions 1–3 of 7')
+  expect(batchLabel(7, 2)).toBe('Question 7 of 7')
+})
+
+test('a prompt is held in the panel only where someone can see it', async () => {
+  expect(holdMode('composer', ['terminal'])).toBe('panel')
+  expect(holdMode('sdk', ['desktop'])).toBe('panel')
+  expect(holdMode('bridge', ['desktop', 'mobile'])).toBe('dialog')
+  expect(holdMode('composer', ['mobile'])).toBe('dialog')
+  expect(holdMode('sdk', [])).toBe('pass')
+})
+
+test('remembered answers: the newest per question wins, matched by question then topic, accents ignored', async () => {
+  const old = { topic: 'Scope', question: 'What should the cache cover?', answer: 'All API calls', at: 1 }
+  const memory = rememberAnswers([old], [{ ...old, answer: 'Images too', at: 2 }, { topic: 'Tests', question: 'Which tests?', answer: '', at: 2 }])
+  expect(memory).toEqual([{ ...old, answer: 'Images too', at: 2 }])
+  const question = { id: 'q1', topic: 'scope', question: 'What should the cache cover?', options: ['Scan results only', 'Images too'], recommended: 0 }
+  expect(startingAnswer(question, memory)).toEqual({ choice: 1, remembered: true })
+  expect(startingAnswer({ ...question, question: 'Quelle portée ?' }, [{ ...old, topic: 'Scopé', answer: 'Only the cache', at: 3 }])).toEqual({ choice: 0, text: 'Only the cache', remembered: true })
+  expect(startingAnswer(question, [])).toEqual({ choice: 0 })
+  expect(rememberAnswers([], Array.from({ length: 50 }, (_, n) => ({ topic: `T${n}`, question: `Q${n}?`, answer: 'a', at: n })))).toHaveLength(40)
 })
