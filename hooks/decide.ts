@@ -471,14 +471,14 @@ export type Read = {
 }
 
 /** The Haiku read: whether the prompt is clear, the questions worth asking, and the pick. */
-export const parseRead = (text: string, fallback: Pick, maxQuestions: number): Read | undefined => {
+export const parseRead = (text: string, fallback: Pick): Read | undefined => {
   const json = firstJson(text) as Record<string, unknown> | undefined
   if (!json || typeof json !== 'object') return undefined
   const { model, effort } = normalise(str(json.model, 10), str(json.effort, 10), fallback)
   const raw = Array.isArray(json.questions) ? json.questions : []
   const questions: UpgradeQuestion[] = []
   for (const [index, one] of raw.entries()) {
-    if (questions.length >= maxQuestions || !one || typeof one !== 'object') continue
+    if (!one || typeof one !== 'object') continue
     const item = one as Record<string, unknown>
     const options = (Array.isArray(item.options) ? item.options : [])
       .map(option => str(option, 60))

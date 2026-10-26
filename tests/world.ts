@@ -190,3 +190,18 @@ Cache scan results so a second scan of the same page skips the API call.
 - Done when: a second scan of the same page is faster and makes no API call.
 </prompt>
 PICK: opus xhigh | multi-file feature`
+
+/** A read with more questions than the old cap of three. */
+export const READ_WITH_SIX_QUESTIONS = JSON.stringify({
+  clear: false,
+  intent: 'redesign onboarding',
+  model: 'opus',
+  effort: 'high',
+  reason: 'multi-file feature',
+  questions: ['Audience', 'Steps', 'Skip', 'Tone', 'Platforms', 'Done when'].map((topic, n) => ({
+    topic,
+    question: `Question ${n + 1} about ${topic.toLowerCase()}?`,
+    options: [`Option ${n + 1}a`, `Option ${n + 1}b`],
+    recommended: 0,
+  })),
+})

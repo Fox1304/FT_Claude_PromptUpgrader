@@ -20,7 +20,8 @@ import {
   switchCost,
 } from '../hooks/decide'
 import type { Pick } from '../types'
-import { READ_WITH_QUESTIONS, REWRITE } from './world'
+import { READ_SYSTEM } from '../hooks/prompts'
+import { READ_WITH_QUESTIONS, READ_WITH_SIX_QUESTIONS, REWRITE } from './world'
 
 const OPUS_HIGH: Pick = { model: 'opus', effort: 'high', reason: 'general task', by: 'rules' }
 const HOUR = 60 * 60_000
@@ -83,15 +84,15 @@ test('mid-conversation, a costly step down keeps the stronger model at Medium; a
 })
 
 test("the models' answers are read defensively", async () => {
-  const read = parseRead(READ_WITH_QUESTIONS, OPUS_HIGH, 3)
+  const read = parseRead(READ_WITH_QUESTIONS, OPUS_HIGH)
   expect(read).toMatchObject({ isClear: false, intent: 'cache scan results', pick: { model: 'opus', effort: 'high', by: 'haiku' } })
   expect(read?.questions.map(one => one.id)).toEqual(['q1', 'q2'])
-  expect(parseRead('{"clear":false,"questions":[{"question":"Which?","options":["one"]}],"model":"gpt","effort":"low"}', OPUS_HIGH, 3)).toMatchObject({
+  expect(parseRead('{"clear":false,"questions":[{"question":"Which?","options":["one"]}],"model":"gpt","effort":"low"}', OPUS_HIGH)).toMatchObject({
     isClear: true,
     questions: [],
     pick: { model: 'opus', effort: 'medium' },
   })
-  expect(parseRead('no json here', OPUS_HIGH, 3)).toBeUndefined()
+  expect(parseRead('no json here', OPUS_HIGH)).toBeUndefined()
   expect(parseRewrite(REWRITE, OPUS_HIGH)).toMatchObject({ pick: { model: 'opus', effort: 'xhigh', reason: 'multi-file feature', by: 'upgrader' } })
   expect(parseRewrite(REWRITE, OPUS_HIGH)?.prompt).toStartWith('Cache scan results')
   expect(parseRewrite('<prompt></prompt>', OPUS_HIGH)).toBeUndefined()
@@ -152,4 +153,12 @@ test('calibrated on real prompts: shipping, planning, checks and long engineerin
   expect(rulePick('Should we use resend instead of Brevo ?', false).isConfident).toBe(false)
   const long = `The redeem of codes fails on Android ${'when a parent enters a code from the email and taps confirm on the settings screen '.repeat(3)}`
   expect(rulePick(long, false).pick).toMatchObject({ model: 'opus', effort: 'xhigh', reason: 'detailed engineering task' })
+})
+
+test('the read keeps every question the model asks, with no cap', async () => {
+  const read = parseRead(READ_WITH_SIX_QUESTIONS, OPUS_HIGH)
+  expect(read?.isClear).toBe(false)
+  expect(read?.questions.map(one => one.id)).toEqual(['q1', 'q2', 'q3', 'q4', 'q5', 'q6'])
+  expect(READ_SYSTEM).toContain('as many as the open decisions need')
+  expect(READ_SYSTEM).not.toMatch(/up to \d+ questions/)
 })

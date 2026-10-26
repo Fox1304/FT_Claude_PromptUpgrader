@@ -40,8 +40,7 @@ import { CLASSIFY_SYSTEM, READ_SYSTEM, RECAP_PROMPT, REWRITE_SYSTEM } from './pr
 const PLUGIN = 'prompt-pilot'
 const PANE = 'prompt-upgrader'
 const PANE_TITLE = '✨ Prompt upgrader'
-const MAX_QUESTIONS = 3
-const READ_TIMEOUT_MS = 10_000
+const READ_TIMEOUT_MS = 15_000
 const CLASSIFY_TIMEOUT_MS = 6_000
 const WRITE_TIMEOUT_MS = 60_000
 const HANDOFF_MS = 15 * 60_000
@@ -143,12 +142,13 @@ const readPrompt = async ($: EngineInterface, text: string, conv: Conversation, 
   const rules = await projectRules($)
   const reply = await $.model.complete({
     model: 'haiku',
-    system: READ_SYSTEM(MAX_QUESTIONS),
+    system: READ_SYSTEM,
     prompt: [
       { text: rules ? `Project rules (start of CLAUDE.md):\n${rules}` : 'This project has no rules file.', cache: true },
       { text: `${contextBlock(conv)}\n\nPrompt to triage:\n<<<\n${clip(text, 6000)}\n>>>` },
     ],
-    maxTokens: 900,
+    // Room for a long list of questions: a reply cut short is unreadable JSON and shows no panel at all.
+    maxTokens: 4000,
     effort: 'low',
     timeoutMs: READ_TIMEOUT_MS,
   })
@@ -158,7 +158,7 @@ const readPrompt = async ($: EngineInterface, text: string, conv: Conversation, 
     return undefined
   }
 
-  return parseRead(reply.text, fallback, MAX_QUESTIONS)
+  return parseRead(reply.text, fallback)
 }
 
 /** The chooser's pick: the rules when they are sure, else a quick Haiku read. */

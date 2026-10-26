@@ -2,7 +2,7 @@
 
 A Claude Code mod that works on every prompt you send, in two parts you can switch on and off separately:
 
-- **Prompt upgrader**: when a prompt asks for something substantial but leaves things open, it is held for a moment while a small model reads it. Clear prompts go through untouched. Otherwise a panel asks you up to three short questions, then offers a rewritten prompt you can launch, edit, copy or drop in favour of your original.
+- **Prompt upgrader**: when a prompt asks for something substantial but leaves things open, it is held for a moment while a small model reads it. Clear prompts go through untouched. Otherwise a panel asks you the short questions that would change the result (as many as the prompt needs), then offers a rewritten prompt you can launch, edit, copy or drop in favour of your original.
 - **Model chooser**: picks the model (Opus, Sonnet, Haiku) and the effort (Medium, High, Extra, Max) that fit each prompt, and asks you to confirm when it matters.
 
 The two live in one mod because the upgrader must run first and hand the chooser the model it settled on.
@@ -16,7 +16,7 @@ The mod's plugin name is `prompt-pilot`.
 - Runs on prompts of 12 words or more that are not an answer to a question Claude just asked, and have no attachment.
 - A small model (Haiku) reads the prompt with the start of your project's `CLAUDE.md` as context. If the prompt is clear, it runs as typed, with « ✓ Your prompt is clear ».
 - If not, the prompt is held and the **Prompt upgrader** pane opens:
-  - up to 3 questions, each with ready answers (●/○) or « Or type your own answer… », plus « Anything to add? »;
+  - as many questions as the open decisions need, each with ready answers (●/○) or « Or type your own answer… », plus « Anything to add? »;
   - **Improve**: Sonnet rewrites the prompt with your answers and proposes a model and effort;
   - then **Launch** on the proposed model, change the model or effort, « Ask for a change », **Copy**, **Edit in box** (puts it back in your prompt box), **Send original**, or **Cancel** (your prompt comes back to the box).
 

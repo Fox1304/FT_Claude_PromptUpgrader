@@ -1,6 +1,6 @@
 {
   "name": "prompt-pilot",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Picks the model and effort for each prompt (you confirm), and upgrades substantial prompts through a short question panel before they run",
   "author": {
     "name": "Fox1304",

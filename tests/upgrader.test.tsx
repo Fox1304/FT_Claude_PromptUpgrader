@@ -1,6 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-import { PANE, READ_CLEAR, READ_WITH_QUESTIONS, REWRITE, step, typed, world } from './world'
+import { PANE, READ_CLEAR, READ_WITH_QUESTIONS, READ_WITH_SIX_QUESTIONS, REWRITE, step, typed, world } from './world'
 
 const NOW = new Date(2026, 9, 12, 15, 0).getTime()
 const STEP = { turnId: 't1', index: 0, model: 'claude-opus-5-5', effort: 'high' as const, messageCount: 3 }
@@ -159,4 +159,18 @@ test('?? asks for the panel on a short prompt; a session that places no panes ju
   expect(w.opened).toEqual(['prompt-upgrader'])
   expect(entered).toMatchObject({ text: 'add caching' })
   expect(w.asked).toHaveLength(1)
+})
+
+test('the panel asks more than three questions when the read needs them, and every answer reaches the rewrite', async ($, on) => {
+  const w = world(on, { haiku: [READ_WITH_SIX_QUESTIONS], sonnet: [REWRITE] })
+  mock.clock(on, { now: NOW })
+  await $.prompt.submit(typed('Redesign the onboarding so new parents reach their first scan faster and drop off less often'))
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  for (const n of [1, 2, 3, 4, 5, 6]) expect(await ui.find({ type: 'Text', text: `Question ${n} about ${['audience', 'steps', 'skip', 'tone', 'platforms', 'done when'][n - 1]}?` })).toBeDefined()
+  await ui.press({ key: 'opt:q6:1' })
+  await ui.press({ key: 'improve' })
+  const sent = JSON.stringify(w.completions[1]?.prompt)
+  expect(sent).toContain('Question 4 about tone? → Option 4a')
+  expect(sent).toContain('Question 6 about done when? → Option 6b')
+  await ui.unmount()
 })

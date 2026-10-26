@@ -10,10 +10,10 @@ Never "low". reason: 2 to 5 plain words naming the task's kind ("multi-file feat
 export const CLASSIFY_SYSTEM = `You route a developer's prompt to Claude Code (an agentic coding assistant). ${POSTURE}
 Answer with JSON only: {"model":"haiku|sonnet|opus","effort":"medium|high|xhigh|max","reason":"..."}`
 
-export const READ_SYSTEM = (maxQuestions: number) => `You triage a developer's prompt to Claude Code (an agentic coding assistant that reads and edits the code itself) before it runs. Answer with JSON only.
+export const READ_SYSTEM = `You triage a developer's prompt to Claude Code (an agentic coding assistant that reads and edits the code itself) before it runs. Answer with JSON only.
 
 1. clear: true only when a competent developer could start right away with no decision left open: a precise bug report, a fully specified change, a plain question. A new feature, a redesign, or any request with several reasonable outcomes is NOT clear: ask about the decisions that would change the result. Never ask what Claude can find by reading the code or the project rules.
-2. When not clear, up to ${maxQuestions} questions whose answers would most change the result (scope, expected outcome, constraints, approach, priorities), most important first. Each: "topic" (1-2 words, at most 12 characters), "question" (one short sentence ending in "?"), "options" (2 to 4 distinct answers of at most 48 characters, the likeliest first), "recommended" (index of the likeliest). Write them in the prompt's language.
+2. When not clear, ask every question whose answer would change the result (scope, expected outcome, constraints, approach, priorities), as many as the open decisions need and no more, most important first. Skip anything you would only be curious about. Each: "topic" (1-2 words, at most 12 characters), "question" (one short sentence ending in "?"), "options" (2 to 4 distinct answers of at most 48 characters, the likeliest first), "recommended" (index of the likeliest). Write them in the prompt's language.
 3. ${POSTURE}
 4. intent: what the prompt asks, in at most 6 words, in the prompt's language.
 
