@@ -929,39 +929,44 @@ export const register: Register = (on, options) => {
     const shown = windows.filter(one => one.percent >= 1)
     const usageText = shown.map(one => `${one.kind === 'five_hour' ? '5h' : 'week'} ${Math.round(one.percent)}%`).join(' · ')
     const usageColor = shown.some(one => one.percent >= 95) ? 'error' : shown.some(one => one.percent >= config.warnAt) ? 'warning' : undefined
+    // Another mod's band (the Overview's welcome back) stays drawn above this line.
+    const beneath = await next(e)
 
     return (
-      <Box key="pilot-band" flexDirection="row" justifyContent="space-between" width={e.props.bodyColumns}>
-        <Box flexShrink={1}>
-          {doing ? (
-            <Text color="claude" wrap="truncate-end">
-              ✨ {doing}
-            </Text>
-          ) : up ? (
-            <Text color="claude" wrap="truncate-end">
-              ✨ Upgrading your prompt: answer in the panel
-            </Text>
-          ) : chooser && pick ? (
-            <Text wrap="truncate-end">
-              <Text color={MODEL_COLOR[pick.model]} bold>
-                ◆ {label(pick)}
+      <Box key="pilot-stack" flexDirection="column" width={e.props.bodyColumns}>
+        {beneath}
+        <Box key="pilot-band" flexDirection="row" justifyContent="space-between" width={e.props.bodyColumns}>
+          <Box flexShrink={1}>
+            {doing ? (
+              <Text color="claude" wrap="truncate-end">
+                ✨ {doing}
               </Text>
-              <Text color={MODEL_COLOR[pick.model]}> {meter(pick.effort)}</Text>
-              <Text dimColor> {pick.reason}</Text>
-              {pick.by === 'trusted' ? <Text dimColor> · auto</Text> : null}
+            ) : up ? (
+              <Text color="claude" wrap="truncate-end">
+                ✨ Upgrading your prompt: answer in the panel
+              </Text>
+            ) : chooser && pick ? (
+              <Text wrap="truncate-end">
+                <Text color={MODEL_COLOR[pick.model]} bold>
+                  ◆ {label(pick)}
+                </Text>
+                <Text color={MODEL_COLOR[pick.model]}> {meter(pick.effort)}</Text>
+                <Text dimColor> {pick.reason}</Text>
+                {pick.by === 'trusted' ? <Text dimColor> · auto</Text> : null}
+              </Text>
+            ) : (
+              <Text dimColor wrap="truncate-end">
+                {[chooser ? '◆ Auto model' : '', upgrader ? '✨ Prompt upgrader' : ''].filter(Boolean).join(' · ')}
+              </Text>
+            )}
+          </Box>
+          {usageText ? (
+            <Text color={usageColor} dimColor={!usageColor}>
+              {' '}
+              {usageText}
             </Text>
-          ) : (
-            <Text dimColor wrap="truncate-end">
-              {[chooser ? '◆ Auto model' : '', upgrader ? '✨ Prompt upgrader' : ''].filter(Boolean).join(' · ')}
-            </Text>
-          )}
+          ) : null}
         </Box>
-        {usageText ? (
-          <Text color={usageColor} dimColor={!usageColor}>
-            {' '}
-            {usageText}
-          </Text>
-        ) : null}
       </Box>
     )
   })

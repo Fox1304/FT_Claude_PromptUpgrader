@@ -68,6 +68,8 @@ export const HISTORY: SessionMessage[] = [
 
 /** The engine beneath the mod: the session, the models, the dialog, the panel, the box and the clipboard. */
 export const world = (on: On, setup: Setup = {}) => {
+  // The engine's own band beneath the mod's, which keeps it drawn.
+  on('ui.render', { component: 'AbovePrompt' }, () => ({ type: 'Box', props: { key: 'engine-band' }, children: [] }))
   const haiku = [...(setup.haiku ?? [])]
   const sonnet = [...(setup.sonnet ?? [])]
   const picks = [...(setup.picks ?? [])]
