@@ -20,6 +20,8 @@ import {
   switchCost,
   batchLabel,
   holdMode,
+  holdFable,
+  tierOf,
   rememberAnswers,
   startingAnswer,
 } from '../hooks/decide'
@@ -60,7 +62,7 @@ test('the rules: trivial on Haiku, routine on Sonnet, real work on Opus, hard pr
 
 test('the confirm dialog offers the rungs next to the pick', async () => {
   expect(neighbours({ model: 'opus', effort: 'high' })).toEqual({ up: { model: 'opus', effort: 'xhigh' }, down: { model: 'sonnet', effort: 'xhigh' } })
-  expect(neighbours({ model: 'opus', effort: 'max' }).up).toBeUndefined()
+  expect(neighbours({ model: 'opus', effort: 'max' }).up).toEqual({ model: 'fable', effort: 'high' })
   expect(neighbours({ model: 'haiku', effort: 'medium' }).down).toBeUndefined()
   expect(label({ model: 'opus', effort: 'xhigh' })).toBe('Opus · Extra')
   expect(parsePickWords('sonnet max', OPUS_HIGH)).toEqual({ model: 'sonnet', effort: 'max' })
@@ -190,4 +192,22 @@ test('remembered answers: the newest per question wins, matched by question then
   expect(startingAnswer({ ...question, question: 'Quelle portée ?' }, [{ ...old, topic: 'Scopé', answer: 'Only the cache', at: 3 }])).toEqual({ choice: 0, text: 'Only the cache', remembered: true })
   expect(startingAnswer(question, [])).toEqual({ choice: 0 })
   expect(rememberAnswers([], Array.from({ length: 50 }, (_, n) => ({ topic: `T${n}`, question: `Q${n}?`, answer: 'a', at: n })))).toHaveLength(40)
+})
+
+test('Fable is the top tier: its ids, tags and rungs, and a conversation on it stays there unless the person moves it', async () => {
+  expect(tierOf('claude-fable-5-2')).toBe('fable')
+  expect(tierOf('claude-mythos-5-2')).toBe('fable')
+  expect(tierOf('claude-opus-5-5[1m]')).toBe('opus')
+  expect(parseTags('!fable !max refactor the parser')).toMatchObject({ text: 'refactor the parser', model: 'fable', effort: 'max' })
+  expect(neighbours({ model: 'opus', effort: 'max' }).up).toEqual({ model: 'fable', effort: 'high' })
+  expect(neighbours({ model: 'fable', effort: 'max' }).up).toBeUndefined()
+  expect(label({ model: 'fable', effort: 'xhigh' })).toBe('Fable · Extra')
+  expect(parsePickWords('fable', OPUS_HIGH)).toEqual({ model: 'fable', effort: 'high' })
+  const routine: Pick = { model: 'sonnet', effort: 'medium', reason: 'routine request', by: 'rules', kind: 'routine request' }
+  expect(holdFable(routine, { model: 'fable' })).toMatchObject({ model: 'fable', effort: 'medium', by: 'kept', kind: 'routine request' })
+  expect(holdFable({ ...routine, by: 'you' }, { model: 'fable' })).toMatchObject({ model: 'sonnet' })
+  expect(holdFable(routine, { model: 'opus' })).toBe(routine)
+  expect(holdFable(routine, null)).toBe(routine)
+  // The rules never pick Fable on their own.
+  expect(rulePick('the upload still fails after the retry change, find the root cause', false).pick.model).toBe('opus')
 })

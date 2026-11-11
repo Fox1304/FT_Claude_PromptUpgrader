@@ -2,13 +2,17 @@ import type { Effort, HoldMode, ModelName, Pick, RememberedAnswer, SwitchCost, T
 
 // ── The ladder ────────────────────────────────────────────────────────────
 
-export const MODEL_LABEL: Record<ModelName, string> = { haiku: 'Haiku', sonnet: 'Sonnet', opus: 'Opus' }
+export const MODEL_LABEL: Record<ModelName, string> = { haiku: 'Haiku', sonnet: 'Sonnet', opus: 'Opus', fable: 'Fable' }
 export const EFFORT_LABEL: Record<Effort, string> = { medium: 'Medium', high: 'High', xhigh: 'Extra', max: 'Max' }
-export const MODELS: ModelName[] = ['haiku', 'sonnet', 'opus']
+export const MODELS: ModelName[] = ['haiku', 'sonnet', 'opus', 'fable']
 export const EFFORTS: Effort[] = ['medium', 'high', 'xhigh', 'max']
-export const MODEL_RANK: Record<ModelName, number> = { haiku: 0, sonnet: 1, opus: 2 }
+export const MODEL_RANK: Record<ModelName, number> = { haiku: 0, sonnet: 1, opus: 2, fable: 3 }
 
-/** Weakest to strongest; the confirm dialog offers a pick's neighbours. */
+/**
+ * Weakest to strongest; the confirm dialog offers a pick's neighbours. The rules and
+ * the reads never pick Fable themselves: it is reached as Opus · Max's stronger
+ * neighbour, by the person, or by a session already on Fable (see `holdFable`).
+ */
 export const LADDER: [ModelName, Effort][] = [
   ['haiku', 'medium'],
   ['haiku', 'high'],
@@ -18,6 +22,9 @@ export const LADDER: [ModelName, Effort][] = [
   ['opus', 'high'],
   ['opus', 'xhigh'],
   ['opus', 'max'],
+  ['fable', 'high'],
+  ['fable', 'xhigh'],
+  ['fable', 'max'],
 ]
 
 export const label = (pick: { model: ModelName; effort: Effort }) => `${MODEL_LABEL[pick.model]} · ${EFFORT_LABEL[pick.effort]}`
@@ -54,9 +61,9 @@ export const neighbours = (pick: { model: ModelName; effort: Effort }) => {
 export const samePick = (a: { model: ModelName; effort: Effort } | null | undefined, b: { model: ModelName; effort: Effort } | null | undefined) =>
   !!a && !!b && a.model === b.model && a.effort === b.effort
 
-/** The tier a model id belongs to: "claude-opus-5-5[1m]" is opus. */
+/** The tier a model id belongs to: "claude-opus-5-5[1m]" is opus, "claude-fable-5-2" (or its Mythos twin) is fable. */
 export const tierOf = (model: string): ModelName | undefined =>
-  /opus/i.test(model) ? 'opus' : /sonnet/i.test(model) ? 'sonnet' : /haiku/i.test(model) ? 'haiku' : undefined
+  /fable|mythos/i.test(model) ? 'fable' : /opus/i.test(model) ? 'opus' : /sonnet/i.test(model) ? 'sonnet' : /haiku/i.test(model) ? 'haiku' : undefined
 
 // ── Words typed by the person: tags, and a pick in their own words ─────────
 
@@ -70,11 +77,11 @@ export type Tags = {
   forceUpgrade: boolean
 }
 
-const MODEL_WORDS: Record<string, ModelName> = { opus: 'opus', sonnet: 'sonnet', haiku: 'haiku' }
+const MODEL_WORDS: Record<string, ModelName> = { fable: 'fable', opus: 'opus', sonnet: 'sonnet', haiku: 'haiku' }
 const EFFORT_WORDS: Record<string, Effort> = { medium: 'medium', med: 'medium', high: 'high', extra: 'xhigh', xhigh: 'xhigh', max: 'max' }
-const TAG = /^(!!|\?\?|!(opus|sonnet|haiku|medium|med|high|extra|xhigh|max))$/i
+const TAG = /^(!!|\?\?|!(fable|opus|sonnet|haiku|medium|med|high|extra|xhigh|max))$/i
 
-/** Reads `!!`, `??` and `!opus`/`!max`… at the start or the end of a prompt, and strips them. */
+/** Reads `!!`, `??` and `!fable`/`!opus`/`!max`… at the start or the end of a prompt, and strips them. */
 export const parseTags = (raw: string): Tags => {
   const words = raw.trim().split(/\s+/)
   const tags: string[] = []
@@ -380,6 +387,15 @@ export const keepStronger = (pick: Pick, current: { model: ModelName; effort: Ef
   return { model: current.model, effort: 'medium', reason: `${pick.reason}, kept on ${MODEL_LABEL[current.model]} (cache warm)`, by: 'kept' }
 }
 
+/**
+ * A conversation on Fable stays on Fable until the person moves it (a tag, the dialog,
+ * the panel's chips): the chooser's own picks only set the effort there.
+ */
+export const holdFable = (pick: Pick, current: { model: ModelName } | null): Pick =>
+  current?.model === 'fable' && pick.model !== 'fable' && pick.by !== 'you'
+    ? { ...pick, model: 'fable', reason: `${pick.reason}, kept on Fable`.slice(0, 60), by: 'kept' }
+    : pick
+
 /** Past this, a conversation may not fit another model's window: it stays where it is. */
 export const MOVABLE_CONTEXT = 150_000
 
@@ -410,7 +426,7 @@ export const recordAnswer = (trust: Record<string, TrustEntry>, kind: string, ke
 export const costKey = (pick: { model: ModelName; effort: Effort }) => `${pick.model}:${pick.effort}`
 
 /** Relative weight of a turn per model (input price ratio) and per effort (thinking spent). */
-const MODEL_WEIGHT: Record<ModelName, number> = { haiku: 1, sonnet: 3, opus: 5 }
+const MODEL_WEIGHT: Record<ModelName, number> = { haiku: 1, sonnet: 3, opus: 5, fable: 8 }
 const EFFORT_WEIGHT: Record<Effort, number> = { medium: 0.7, high: 1, xhigh: 1.4, max: 2 }
 const weight = (pick: { model: ModelName; effort: Effort }) => MODEL_WEIGHT[pick.model] * EFFORT_WEIGHT[pick.effort]
 

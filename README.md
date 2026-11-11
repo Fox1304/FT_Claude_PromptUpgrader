@@ -3,7 +3,7 @@
 A Claude Code mod that works on every prompt you send, in two parts you can switch on and off separately:
 
 - **Prompt upgrader**: when a prompt asks for something substantial but leaves things open, it is held for a moment while a small model reads it. Clear prompts go through untouched. Otherwise a panel asks you the short questions that would change the result, three at a time (as many as the prompt needs), then offers a rewritten prompt you can launch, edit, copy or drop in favour of your original.
-- **Model chooser**: picks the model (Opus, Sonnet, Haiku) and the effort (Medium, High, Extra, Max) that fit each prompt, and asks you to confirm when it matters.
+- **Model chooser**: picks the model (Opus, Sonnet, Haiku) and the effort (Medium, High, Extra, Max) that fit each prompt, and asks you to confirm when it matters. A conversation you set to Fable stays on Fable: the chooser then only sets the effort, and you move it off with a tag, the dialog or the panel.
 
 The two live in one mod because the upgrader must run first and hand the chooser the model it settled on.
 
@@ -44,14 +44,14 @@ Put them at the start or the end of a prompt; they are removed before it is sent
 |---|---|
 | `!!` | no upgrader for this prompt |
 | `??` | the upgrader even for a short prompt |
-| `!opus` `!sonnet` `!haiku` | force the model |
+| `!fable` `!opus` `!sonnet` `!haiku` | force the model |
 | `!medium` `!high` `!extra` `!max` | force the effort |
 
 ## Requirements
 
 - **Claude Code 2.1.288 or later** (terminal, or the desktop app's Code tab).
 - **Mods (plugin hooks modules) enabled for your account.** They are an early-access feature that Anthropic switches on per account. When the switch is off, Claude Code still installs the mod but does not load it.
-- Access to the models it uses: by default `claude-opus-5-5`, `claude-sonnet-5-5` and `claude-haiku-5-5` (change them in the options). The upgrader's reads and rewrites run on your own account, like any other Claude Code request.
+- Access to the models it uses: by default `claude-opus-5-5`, `claude-sonnet-5-5` and `claude-haiku-5-5`, plus `claude-fable-5-2` when you choose Fable (change them in the options). The upgrader's reads and rewrites run on your own account, like any other Claude Code request.
 - macOS for one fallback only: when the app cannot put text in your prompt box or clipboard, the mod uses `pbcopy`. Elsewhere that one fallback is skipped.
 - No other dependency: no npm install, no build step.
 
@@ -113,6 +113,7 @@ Set them in `/config` (or under `pluginConfigs` in `~/.claude/settings.json`):
 
 | Option | Default | What it does |
 |---|---|---|
+| `fableModel` | `claude-fable-5-2` | the model id used for Fable picks (never picked on its own) |
 | `opusModel` | `claude-opus-5-5` | the model id used for Opus picks |
 | `sonnetModel` | `claude-sonnet-5-5` | the model id used for Sonnet picks and rewrites |
 | `haikuModel` | `claude-haiku-5-5` | the model id used for Haiku picks and for reading prompts |

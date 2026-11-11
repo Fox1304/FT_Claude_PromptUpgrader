@@ -1,4 +1,4 @@
-export type ModelName = 'haiku' | 'sonnet' | 'opus'
+export type ModelName = 'haiku' | 'sonnet' | 'opus' | 'fable'
 
 /** The four levels the chooser uses; `xhigh` is shown as "Extra". Low is never used. */
 export type Effort = 'medium' | 'high' | 'xhigh' | 'max'

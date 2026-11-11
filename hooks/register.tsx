@@ -42,6 +42,7 @@ import {
   startingAnswer,
   switchCost,
   tierOf,
+  holdFable,
   wordCount,
 } from './decide'
 import type { Read } from './decide'
@@ -68,12 +69,12 @@ const upgraderOn = atom({ plugin: 'prompt-pilot', key: 'upgraderOn' } as const, 
 
 /** Model ids, cache lifetime and warning level, from the mod's settings. */
 const config = {
-  ids: { opus: 'claude-opus-5-5', sonnet: 'claude-sonnet-5-5', haiku: 'claude-haiku-5-5' } as Record<ModelName, string>,
+  ids: { fable: 'claude-fable-5-2', opus: 'claude-opus-5-5', sonnet: 'claude-sonnet-5-5', haiku: 'claude-haiku-5-5' } as Record<ModelName, string>,
   cacheMs: 60 * 60_000,
   warnAt: 80,
 }
 
-const MODEL_COLOR: Record<ModelName, string> = { opus: 'claude', sonnet: 'suggestion', haiku: 'success' }
+const MODEL_COLOR: Record<ModelName, string> = { fable: 'permission', opus: 'claude', sonnet: 'suggestion', haiku: 'success' }
 
 /** Prompts that come from elsewhere than the person (notifications, peers, other plugins) run on what runs now. */
 const NOT_THE_PERSON = new Set<PromptOrigin['kind']>([
@@ -109,13 +110,23 @@ const conversation = async ($: EngineInterface): Promise<Conversation> => {
   return { lastUser, lastAssistant, hasHistory: messages.some(one => one.role === 'assistant'), contextTokens: used.context.tokens ?? 0 }
 }
 
-/** What runs now: the last pick, else the session's own model (at High). */
+/**
+ * What runs now: the last pick, else the session's own model (at High). A session the
+ * person set to Fable is on Fable whatever the chooser picked before, unless the person
+ * themself moved it off (a tag, the dialog, the panel).
+ */
 const currentPick = async ($: EngineInterface): Promise<Pick> => {
   const pick = await read($, active)
-  if (pick) return pick
+  const session = tierOf(await $.session.model())
+  if (pick && !(session === 'fable' && pick.model !== 'fable' && pick.by !== 'you')) return pick
+  if (session === 'fable') return { model: 'fable', effort: pick?.effort ?? 'high', reason: 'your session model', by: 'kept' }
 
-  return { model: tierOf(await $.session.model()) ?? 'opus', effort: 'high', reason: 'session model', by: 'kept' }
+  return { model: session ?? 'opus', effort: 'high', reason: 'session model', by: 'kept' }
 }
+
+/** Whether what runs now is worth knowing before the first answer: a history, an earlier pick, or a session set to Fable. */
+const hasCurrent = async ($: EngineInterface, conv: Conversation) =>
+  conv.hasHistory || !!(await read($, active)) || tierOf(await $.session.model()) === 'fable'
 
 const projectRules = async ($: EngineInterface) => {
   const root = await $.session.root()
@@ -454,10 +465,11 @@ const upgradeByDialog = async ($: EngineInterface, original: string, triage: Rea
 
 const openUpgrade = async ($: EngineInterface, original: string, triage: Read, pick0: Pick, isForced: boolean, chooser: boolean, conv: Conversation, memory: readonly RememberedAnswer[]) => {
   const now = await $.clock.now()
-  const from = conv.hasHistory ? await currentPick($) : null
+  const from = (await hasCurrent($, conv)) ? await currentPick($) : null
   const clock = await read($, cache)
-  const first = switchCost(pick0, from, conv.contextTokens, clock, now, config.cacheMs)
-  const pick = keepIfTooLong(isForced ? pick0 : keepStronger(pick0, from, first), from, conv.contextTokens)
+  const held = isForced ? pick0 : holdFable(pick0, from)
+  const first = switchCost(held, from, conv.contextTokens, clock, now, config.cacheMs)
+  const pick = keepIfTooLong(isForced ? held : keepStronger(held, from, first), from, conv.contextTokens)
   const state: Upgrade = {
     id: `u${now}`,
     stage: 'questions',
@@ -579,9 +591,10 @@ const writeUpgrade = async ($: EngineInterface, tweak?: string) => {
             : 'the model sent back nothing'
       return { ...up, stage: 'failed' as const, error: `Couldn't write the improved prompt: ${why}.` }
     }
+    const held = holdFable(parsed.pick, up.from)
     const fresh = up.pickTouched
       ? up.pick
-      : keepIfTooLong(keepStronger(parsed.pick, up.from, switchCost(parsed.pick, up.from, up.contextTokens, clock, now, config.cacheMs)), up.from, up.contextTokens)
+      : keepIfTooLong(keepStronger(held, up.from, switchCost(held, up.from, up.contextTokens, clock, now, config.cacheMs)), up.from, up.contextTokens)
 
     return {
       ...up,
@@ -779,7 +792,7 @@ export const register: Register = (on, options) => {
     const kind = kindOf(text, conv.lastAssistant)
     const hasAttachments = (e.attachments?.length ?? 0) > 0
     const now = await $.clock.now()
-    const current = conv.hasHistory || (await read($, active)) ? await currentPick($) : null
+    const current = (await hasCurrent($, conv)) ? await currentPick($) : null
 
     // An improved prompt the person edited in the box runs on the panel's pick, unasked.
     const handed = await read($, handoff)
@@ -810,10 +823,11 @@ export const register: Register = (on, options) => {
         const opened = mode === 'panel' && (await openUpgrade($, text, triage, forced ?? triage.pick, !!forced, chooser, conv, memory))
         if (opened) return { drop: '✨ Prompt upgrader: answer in its panel, then Launch (or Send as is).' }
         // No panel to hold it in: the dialog asks, and the prompt runs either way.
-        const improved = await upgradeByDialog($, text, triage, forced ?? triage.pick, memory)
+        const improved = await upgradeByDialog($, text, triage, forced ?? holdFable(triage.pick, current), memory)
         if (improved) {
           const clock = await read($, cache)
-          const pick = forced ?? keepIfTooLong(keepStronger(improved.pick, current, switchCost(improved.pick, current, conv.contextTokens, clock, now, config.cacheMs)), current, conv.contextTokens)
+          const held = holdFable(improved.pick, current)
+          const pick = forced ?? keepIfTooLong(keepStronger(held, current, switchCost(held, current, conv.contextTokens, clock, now, config.cacheMs)), current, conv.contextTokens)
           if (chooser) await setActive($, pick)
 
           return next({ ...e, text: improved.prompt })
@@ -827,7 +841,7 @@ export const register: Register = (on, options) => {
     let pick: Pick
     if (forced) pick = forced
     else if (asked === 'ack' && current) pick = { ...current, by: 'kept' }
-    else pick = triage?.pick ?? (await choosePick($, text, hasAttachments, conv))
+    else pick = holdFable(triage?.pick ?? (await choosePick($, text, hasAttachments, conv)), current)
     if (forced) {
       const usual = rulePick(text, hasAttachments).pick
       if (!samePick(forced, usual)) await forgetTrust($, kindKey(usual))

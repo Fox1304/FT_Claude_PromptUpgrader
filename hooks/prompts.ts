@@ -23,6 +23,7 @@ const MODEL_HINT: Record<ModelName, string> = {
   opus: 'Opus plans well on its own: give it the goal, the decisions already made, the constraints and how to verify; do not dictate steps it can work out.',
   sonnet: 'Sonnet does best with a bounded task: name the area or files to touch and the exact expected result.',
   haiku: 'Haiku needs one bounded task, explicit steps and the exact expected output.',
+  fable: 'Fable plans and verifies best on its own: give it the goal, the decisions already made, the constraints and how to verify; never dictate steps.',
 }
 
 export const REWRITE_SYSTEM = (target: ModelName) => `You rewrite a developer's prompt to Claude Code (an agentic coding assistant that reads and edits the code itself) so it gets an excellent result on the first try. Fold in the answers the developer just gave.
@@ -33,12 +34,12 @@ Rules:
 - Every sentence must change the outcome: no role-play ("You are an expert"), no politeness, no filler, no restating the obvious. Shorter is better when nothing is lost.
 - Open with the goal as one imperative sentence. Then, only where they add something: the context Claude cannot find in the code; scope and constraints (what to touch, what to leave alone); the decisions made in the answers; how to tell it is done (behaviour to see, tests to pass). Use short bullets for several points; no headings for a small task.
 - ${MODEL_HINT[target]}
-- Then pick the model and effort for the rewritten prompt. ${'Opus is the default for real work; Sonnet for clearly routine work; Haiku for trivial work only; effort medium, high, xhigh or max, never low.'}
+- Then pick the model and effort for the rewritten prompt. ${'Opus is the default for real work; Sonnet for clearly routine work; Haiku for trivial work only; effort medium, high, xhigh or max, never low.'}${target === 'fable' ? ' This conversation runs on Fable, the strongest model: keep fable unless the work is clearly routine.' : ''}
 
 Answer exactly in this shape, nothing before or after:
 <prompt>
 the rewritten prompt
 </prompt>
-PICK: <haiku|sonnet|opus> <medium|high|xhigh|max> | <2 to 5 words naming the task's kind>`
+PICK: <haiku|sonnet|opus${target === 'fable' ? '|fable' : ''}> <medium|high|xhigh|max> | <2 to 5 words naming the task's kind>`
 
 export const RECAP_PROMPT = `Write a handoff note so a fresh Claude Code session can take over this work. Plain text, at most 12 lines: the goal, what is done (with file paths), decisions made and why, what is left, and anything that must not be redone or broken. No preamble.`

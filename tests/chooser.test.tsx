@@ -124,3 +124,23 @@ test('plan usage warns once per window and level, and the band shows it', async 
     await ui.unmount()
   }
 })
+
+test('a session set to Fable stays on Fable: the chooser only sets the effort, and a tag can still move it', async ($, on) => {
+  const w = world(on, { model: 'claude-fable-5-2', picks: [undefined] })
+  mock.clock(on, { now: NOW })
+  const FABLE_STEP = { ...STEP, model: 'claude-fable-5-2' }
+  await $.prompt.submit(typed('!! For each exercise in the app, add a fallback exercise that uses another method, and make it a rule for future ones'))
+  expect(w.asked[0]?.question).toContain('run it on Fable')
+  await step($.turn.step(FABLE_STEP))
+  expect(w.steps.at(-1)?.model).toBe('claude-fable-5-2')
+
+  // A routine follow-up stays on Fable too.
+  await $.prompt.submit(typed('rename getUser to fetchUser in api.ts'))
+  await step($.turn.step(FABLE_STEP))
+  expect(w.steps.at(-1)?.model).toBe('claude-fable-5-2')
+
+  // The person moves it with a tag.
+  await $.prompt.submit(typed('fix the flaky login test !opus'))
+  await step($.turn.step(FABLE_STEP))
+  expect(w.steps.at(-1)).toEqual({ model: 'claude-opus-5-5', effort: 'high' })
+})

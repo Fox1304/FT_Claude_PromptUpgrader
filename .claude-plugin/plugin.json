@@ -1,6 +1,6 @@
 {
   "name": "prompt-pilot",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "Picks the model and effort for each prompt (you confirm), and upgrades substantial prompts through a short question panel before they run",
   "author": {
     "name": "Fox1304",
@@ -16,6 +16,12 @@
   ],
   "types": "./types/index.d.ts",
   "userConfig": {
+    "fableModel": {
+      "type": "string",
+      "title": "Fable model id",
+      "description": "The model the chooser sends Fable prompts to. A conversation on Fable stays on it until you move it.",
+      "default": "claude-fable-5-2"
+    },
     "opusModel": {
       "type": "string",
       "title": "Opus model id",
